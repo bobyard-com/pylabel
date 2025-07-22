@@ -783,15 +783,15 @@ class Export:
         for idx, row in enumerate(df.itertuples(index=False)):  # ← fixed
             img_id = row.img_id
             if pd.notna(img_id) and img_id not in set_i:
-                out_I.append(
-                    dict(id=img_id,
-                         folder=row.img_folder,
-                         file_name=row.img_filename,
-                         path=row.img_path,
-                         width=row.img_width,
-                         height=row.img_height,
-                         depth=row.img_depth)
-                )
+                out_I.append(dict(
+                    id=img_id,
+                    folder=row.img_folder,
+                    file_name=row.img_filename,
+                    path=row.img_path,
+                    width=row.img_width,
+                    height=row.img_height,
+                    depth=row.img_depth
+                ))
                 set_i.add(img_id)
 
             if pd.notna(row.cat_id):
@@ -799,28 +799,32 @@ class Export:
 
                 # ---- categories (unique) ----
                 if cat_id not in set_c:
-                    out_C.append(
-                        dict(id=cat_id,
-                             name=row.cat_name,
-                             supercategory=row.cat_supercategory)  # ← corrected field
-                    )
+                    out_C.append(dict(
+                        id=cat_id,
+                        name=row.cat_name,
+                        supercategory=row.cat_supercategory
+                    ))
                     set_c.add(cat_id)
 
                 # ---- annotation (one per row) ----
-                ann = dict(image_id=img_id,
-                           id=idx,
-                           segmented=row.ann_segmented,
-                           bbox=[row.ann_bbox_xmin,
-                                 row.ann_bbox_ymin,
-                                 row.ann_bbox_width,
-                                 row.ann_bbox_height],
-                           area=row.ann_area,
-                           segmentation=row.ann_segmentation,
-                           iscrowd=row.ann_iscrowd,
-                           pose=row.ann_pose,
-                           truncated=row.ann_truncated,
-                           category_id=cat_id,
-                           difficult=row.ann_difficult)
+                ann = dict(
+                    image_id=img_id,
+                    id=idx,
+                    segmented=row.ann_segmented,
+                    bbox=[
+                        row.ann_bbox_xmin,
+                        row.ann_bbox_ymin,
+                        row.ann_bbox_width,
+                        row.ann_bbox_height
+                    ],
+                    area=row.ann_area,
+                    segmentation=row.ann_segmentation,
+                    iscrowd=row.ann_iscrowd,
+                    pose=row.ann_pose,
+                    truncated=row.ann_truncated,
+                    category_id=cat_id,
+                    difficult=row.ann_difficult
+                )
 
                 # ---- optional keypoints ----
                 if has_kpts:
@@ -835,23 +839,23 @@ class Export:
             # ---- progress bar ----
             pbar.update()
 
-        mergedI = pd.DataFrame(out_I)
-        mergedA = pd.DataFrame(out_A)
-        mergedC = pd.DataFrame(out_C)
+        mergedI = pd.DataFrame(out_I).round(6).astype(object)
+        mergedA = pd.DataFrame(out_A).round(6).astype(object)
+        mergedC = pd.DataFrame(out_C).round(6).astype(object)
 
-        resultI = mergedI.to_json(orient='records', default_handler=str)
-        resultA = mergedA.to_json(orient='records', default_handler=str)
-        resultC = mergedC.to_json(orient='records', default_handler=str)
+        resultI = mergedI.where(pd.notnull, None).to_dict('records')
+        resultA = mergedA.where(pd.notnull, None).to_dict('records')
+        resultC = mergedC.where(pd.notnull, None).to_dict('records')
 
         json_output = dict(
-            images=json.loads(resultI),
-            annotations=json.loads(resultA),
-            categories=json.loads(resultC),
+            images=resultI,
+            annotations=resultA,
+            categories=resultC,
         )
     
         if output_path == None:
             output_path = Path(
-                self.dataset.path_to_annotations, (self.dataset.name + ".json")
+                self.dataset.path_to_annotations, (self.dataset.name + '.json')
             )
 
         with open(output_path, "w") as outfile:
