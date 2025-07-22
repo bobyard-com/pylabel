@@ -18,7 +18,7 @@ from tqdm import tqdm
 from pylabel.shared import schema
 from pylabel.dataset import Dataset
 from pylabel.exporter import Export
-
+from PIL import Image
 
 def _GetValueOrBlank(element, user_input=None):
     """
@@ -342,19 +342,9 @@ def ImportYoloV5(
 
             row["img_filename"] = image_filename
 
-            imgstream = open(str(image_path), "rb")
-            imgbytes = bytearray(imgstream.read())
-            numpyarray = np.asarray(imgbytes, dtype=np.uint8)
-
-            im = cv2.imdecode(numpyarray, cv2.IMREAD_UNCHANGED)
-
-            img_height = im.shape[0]
-            img_width = im.shape[1]
-            # If the image is grayscale then there is no img_depth
-            if len(im.shape) == 2:
-                img_depth = 1
-            else:
-                img_depth = im.shape[2]  # 3 for color images
+            with Image.open(image_path) as im:
+                img_width, img_height = im.size
+                img_depth = len(im.getbands())
 
             row["img_id"] = img_id
             row["img_width"] = img_width
