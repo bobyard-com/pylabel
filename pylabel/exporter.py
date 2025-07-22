@@ -773,133 +773,82 @@ class Export:
             assert isinstance(cat_id_index, int), "cat_id_index must be an int."
             _ReindexCatIds(df, cat_id_index)
 
-        df_outputI = []
-        df_outputA = []
-        df_outputC = []
-        list_i = []
-        list_c = []
-        json_list = []
+        # --- pre‑loop set‑up --------------------------------------------------------
+        has_kpts = 'ann_keypoints' in df.columns
+        set_i, set_c = set(), set()
+        out_I, out_A, out_C = [], [], []
 
         pbar = tqdm(desc="Exporting to COCO file...", total=df.shape[0])
-        for i in range(0, df.shape[0]):
-            images = [
-                {
-                    "id": df["img_id"][i],
-                    "folder": df["img_folder"][i],
-                    "file_name": df["img_filename"][i],
-                    "path": df["img_path"][i],
-                    "width": df["img_width"][i],
-                    "height": df["img_height"][i],
-                    "depth": df["img_depth"][i],
-                }
-            ]
+        # --- main loop --------------------------------------------------------------
+        for idx, row in enumerate(df.itertuples(index=False)):  # ← fixed
+            img_id = row.img_id
+            if pd.notna(img_id) and img_id not in set_i:
+                out_I.append(
+                    dict(id=img_id,
+                         folder=row.img_folder,
+                         file_name=row.img_filename,
+                         path=row.img_path,
+                         width=row.img_width,
+                         height=row.img_height,
+                         depth=row.img_depth)
+                )
+                set_i.add(img_id)
 
-            # Skip this if cat_id is na
-            if not pd.isna(df["cat_id"][i]):
-                annotations = [
-                    {
-                        "image_id": df["img_id"][i],
-                        "id": df.index[i],
-                        "segmented": df["ann_segmented"][i],
-                        "bbox": [
-                            df["ann_bbox_xmin"][i],
-                            df["ann_bbox_ymin"][i],
-                            df["ann_bbox_width"][i],
-                            df["ann_bbox_height"][i],
-                        ],
-                        "area": df["ann_area"][i],
-                        "segmentation": df["ann_segmentation"][i],
-                        "iscrowd": df["ann_iscrowd"][i],
-                        "pose": df["ann_pose"][i],
-                        "truncated": df["ann_truncated"][i],
-                        "category_id": int(df["cat_id"][i]),
-                        "difficult": df["ann_difficult"][i],
-                    }
-                ]
+            if pd.notna(row.cat_id):
+                cat_id = int(row.cat_id)
 
-                # include keypoints, if available
-                if "ann_keypoints" in df.keys() and (not np.isnan(df["ann_keypoints"][i]).all()):
-                    keypoints = df["ann_keypoints"][i]
-                    if isinstance(keypoints, list):
-                        n_keypoints = int(len(keypoints) / 3)  # 3 numbers per keypoint: x,y,visibility
-                    elif isinstance(keypoints, np.ndarray):
-                        n_keypoints = int(keypoints.size / 3)  # 3 numbers per keypoint: x,y,visibility
-                    else:
-                        raise TypeError('The keypoints array is expected to be either a list or a numpy array')
-                    annotations[0]["num_keypoints"] = n_keypoints
-                    annotations[0]["keypoints"] = keypoints
-                else:
-                    pass
+                # ---- categories (unique) ----
+                if cat_id not in set_c:
+                    out_C.append(
+                        dict(id=cat_id,
+                             name=row.cat_name,
+                             supercategory=row.cat_supercategory)  # ← corrected field
+                    )
+                    set_c.add(cat_id)
 
-                categories = [
-                    {
-                        "id": int(df["cat_id"][i]),
-                        "name": df["cat_name"][i],
-                        "supercategory": df["cat_supercategory"][i],
-                    }
-                ]
+                # ---- annotation (one per row) ----
+                ann = dict(image_id=img_id,
+                           id=idx,
+                           segmented=row.ann_segmented,
+                           bbox=[row.ann_bbox_xmin,
+                                 row.ann_bbox_ymin,
+                                 row.ann_bbox_width,
+                                 row.ann_bbox_height],
+                           area=row.ann_area,
+                           segmentation=row.ann_segmentation,
+                           iscrowd=row.ann_iscrowd,
+                           pose=row.ann_pose,
+                           truncated=row.ann_truncated,
+                           category_id=cat_id,
+                           difficult=row.ann_difficult)
 
-                # Check if the list is empty
-                if list_c:
-                    if categories[0]["id"] in list_c:
-                        pass
-                    else:
-                        categories[0]["id"] = int(categories[0]["id"])
-                        df_outputC.append(pd.DataFrame([categories]))
-                elif not pd.isna(categories[0]["id"]):
-                    categories[0]["id"] = int(categories[0]["id"])
-                    df_outputC.append(pd.DataFrame([categories]))
-                else:
-                    pass
-                list_c.append(categories[0]["id"])
+                # ---- optional keypoints ----
+                if has_kpts:
+                    kpts = row.ann_keypoints
+                    valid_kpts = isinstance(kpts, (list, np.ndarray)) and not np.isnan(kpts).all()
+                    if valid_kpts:
+                        n_kpts = (len(kpts) if isinstance(kpts, list) else kpts.size) // 3
+                        ann.update(num_keypoints=n_kpts, keypoints=kpts)
 
-            if list_i:
-                if images[0]["id"] in list_i or np.isnan(images[0]["id"]):
-                    pass
-                else:
-                    df_outputI.append(pd.DataFrame([images]))
-            elif ~np.isnan(images[0]["id"]):
-                df_outputI.append(pd.DataFrame([images]))
-            else:
-                pass
-            list_i.append(images[0]["id"])
+                out_A.append(ann)
 
-            # If the class id is blank, then there is no annotation to add
-            if not pd.isna(categories[0]["id"]):
-                df_outputA.append(pd.DataFrame([annotations]))
-
+            # ---- progress bar ----
             pbar.update()
 
-        mergedI = pd.concat(df_outputI, ignore_index=True)
-        mergedA = pd.concat(df_outputA, ignore_index=True)
-        mergedC = pd.concat(df_outputC, ignore_index=True)
+        mergedI = pd.DataFrame(out_I)
+        mergedA = pd.DataFrame(out_A)
+        mergedC = pd.DataFrame(out_C)
 
-        resultI = mergedI[0].to_json(orient="split", default_handler=str)
-        resultA = mergedA[0].to_json(orient="split", default_handler=str)
-        resultC = mergedC[0].to_json(orient="split", default_handler=str)
+        resultI = mergedI.to_json(orient='records', default_handler=str)
+        resultA = mergedA.to_json(orient='records', default_handler=str)
+        resultC = mergedC.to_json(orient='records', default_handler=str)
 
-        parsedI = json.loads(resultI)
-        del parsedI["index"]
-        del parsedI["name"]
-        parsedI["images"] = parsedI["data"]
-        del parsedI["data"]
-
-        parsedA = json.loads(resultA)
-        del parsedA["index"]
-        del parsedA["name"]
-        parsedA["annotations"] = parsedA["data"]
-        del parsedA["data"]
-
-        parsedC = json.loads(resultC)
-        del parsedC["index"]
-        del parsedC["name"]
-        parsedC["categories"] = parsedC["data"]
-        del parsedC["data"]
-
-        parsedI.update(parsedA)
-        parsedI.update(parsedC)
-        json_output = parsedI
-
+        json_output = dict(
+            images=json.loads(resultI),
+            annotations=json.loads(resultA),
+            categories=json.loads(resultC),
+        )
+    
         if output_path == None:
             output_path = Path(
                 self.dataset.path_to_annotations, (self.dataset.name + ".json")
