@@ -364,7 +364,7 @@ def ImportYoloV5(
 
                     # check if the row is empty, leave annotation columns blank
                     if line:
-                        d[row_id] = copy.deepcopy(row)
+                        d[row_id] = row.copy()
                         (
                             cat_id,
                             x_center_norm,
