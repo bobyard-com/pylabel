@@ -418,26 +418,27 @@ class Export:
         if columns is None:
             columns = df.columns
 
-        def _format_float(fl: float, fl_format: str):
+        def _format_float(fl: float, fl_format: str=float_format):
             if np.isnan(fl):
                 return ""
-            else:
-                return fl_format % fl
+            return fl_format % fl
 
-        with open(file_path, "w") as f:
-            for row in df[columns].itertuples():
-                row=row[1:]
-                formatted_row = []
-                for x in row:                
-                    if isinstance(x, float):
-                        formatted_row.append(_format_float(x, float_format))
-                    elif isinstance(x, list):
-                        formatted_row.extend(
-                            [_format_float(y, float_format) if isinstance(y, float) else str(y) for y in x]
-                        )
-                    else:
-                        formatted_row.append(str(x))
-                f.write(sep.join(formatted_row) + '\n')
+        lines = []
+        for row in df[columns].itertuples(index=False, name=None):
+            formatted_row = []
+            for x in row:
+                if isinstance(x, float):
+                    formatted_row.append(_format_float(x))
+                elif isinstance(x, list):
+                    formatted_row.extend(
+                        [_format_float(y) if isinstance(y, float) else str(y) for y in x]
+                    )
+                else:
+                    formatted_row.append(str(x))
+            lines.append(sep.join(formatted_row) + '\n')
+
+        with open(file_path, 'w') as f:
+            f.writelines(lines)
 
     def ExportToYoloV5(
         self,
@@ -548,17 +549,16 @@ class Export:
 
         # Convert empty bbox coordinates to nan to avoid math errors
         # If an image has no annotations then an empty label file will be created
-        yolo_dataset.ann_bbox_xmin = yolo_dataset.ann_bbox_xmin.replace(
-            r"^\s*$", np.nan, regex=True
-        )
-        yolo_dataset.ann_bbox_ymin = yolo_dataset.ann_bbox_ymin.replace(
-            r"^\s*$", np.nan, regex=True
-        )
-        yolo_dataset.ann_bbox_width = yolo_dataset.ann_bbox_width.replace(
-            r"^\s*$", np.nan, regex=True
-        )
-        yolo_dataset.ann_bbox_height = yolo_dataset.ann_bbox_height.replace(
-            r"^\s*$", np.nan, regex=True
+        bbox_cols = [
+            'ann_bbox_xmin',
+            'ann_bbox_ymin',
+            'ann_bbox_width',
+            'ann_bbox_height',
+        ]
+        yolo_dataset[bbox_cols] = (
+            yolo_dataset[bbox_cols]
+            .replace(r'^\s*$', np.nan, regex=True)
+            .apply(pd.to_numeric, errors='coerce')
         )
 
         # If segmentation = False then export bounding boxes
@@ -608,11 +608,9 @@ class Export:
         unique_images = yolo_dataset["img_filename"].unique()
         output_file_paths = []
         pbar = tqdm(desc="Exporting YOLO files...", total=len(unique_images))
-        for img_filename in unique_images:
-            df_single_img_annots = yolo_dataset.loc[
-                yolo_dataset.img_filename == img_filename
-            ]
 
+        grouped = yolo_dataset.groupby('img_filename', sort=False)
+        for img_filename, df_single_img_annots in grouped:
             basename, _ = os.path.splitext(img_filename)
             annot_txt_file = basename + ".txt"
             # Use the value of the split collumn to create a directory
