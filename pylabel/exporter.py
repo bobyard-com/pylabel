@@ -650,33 +650,34 @@ class Export:
                 # Create one file for image
                 with open(destination, "w") as file:
                     # Create one row per row in the data frame
-                    for i in range(0, df_single_img_annots.shape[0]):
-                        row = str(df_single_img_annots.iloc[i].cat_id)
-                        segmentation_array = df_single_img_annots.iloc[
-                            i
-                        ].ann_segmentation[0]
+                    if not (len(df_single_img_annots) == 1 and df_single_img_annots.isna().values.any()):
+                        for i in range(0, df_single_img_annots.shape[0]):
+                            row = str(df_single_img_annots.iloc[i].cat_id)
+                            segmentation_array = df_single_img_annots.iloc[
+                                i
+                            ].ann_segmentation[0]
 
-                        # Iterate through every value of the segmentation array
-                        # To normalize the coordinates from 0-1
-                        for index, l in enumerate(segmentation_array):
-                            # The first number in the array is the x value so divide by the width
-                            if index % 2 == 0:
-                                row += " " + (
-                                    str(
-                                        segmentation_array[index]
-                                        / df_single_img_annots.iloc[i].img_width
+                            # Iterate through every value of the segmentation array
+                            # To normalize the coordinates from 0-1
+                            for index, l in enumerate(segmentation_array):
+                                # The first number in the array is the x value so divide by the width
+                                if index % 2 == 0:
+                                    row += " " + (
+                                        str(
+                                            segmentation_array[index]
+                                            / df_single_img_annots.iloc[i].img_width
+                                        )
                                     )
-                                )
-                            else:
-                                # The first number in the array is the x value so divide by the height
-                                row += " " + (
-                                    str(
-                                        segmentation_array[index]
-                                        / df_single_img_annots.iloc[i].img_height
+                                else:
+                                    # The first number in the array is the x value so divide by the height
+                                    row += " " + (
+                                        str(
+                                            segmentation_array[index]
+                                            / df_single_img_annots.iloc[i].img_height
+                                        )
                                     )
-                                )
 
-                        file.write(row + "\n")
+                            file.write(row + "\n")
 
             output_file_paths.append(destination)
 

@@ -330,7 +330,7 @@ def ImportYoloV5(
                 image_filename = filename.name.replace("txt", ext)
 
                 # Get the path to the image file to extract the height, width, and depth
-                image_path = PurePath(path, path_to_images, image_filename)
+                image_path = Path(path, path_to_images, image_filename)
                 if exists(image_path):
                     found_image = True
                     break
@@ -365,36 +365,95 @@ def ImportYoloV5(
                     # check if the row is empty, leave annotation columns blank
                     if line:
                         d[row_id] = row.copy()
-                        (
-                            cat_id,
-                            x_center_norm,
-                            y_center_norm,
-                            width_norm,
-                            height_norm,
-                        ) = line.split()
+                        parts = line.split()
 
-                        row["ann_bbox_width"] = float(width_norm) * img_width
-                        row["ann_bbox_height"] = float(height_norm) * img_height
-                        row["ann_bbox_xmin"] = float(x_center_norm) * img_width - (
-                            (row["ann_bbox_width"] / 2)
-                        )
-                        row["ann_bbox_ymax"] = float(y_center_norm) * img_height + (
-                            (row["ann_bbox_height"] / 2)
-                        )
-                        row["ann_bbox_xmax"] = (
-                            row["ann_bbox_xmin"] + row["ann_bbox_width"]
-                        )
-                        row["ann_bbox_ymin"] = (
-                            row["ann_bbox_ymax"] - row["ann_bbox_height"]
-                        )
+                        # Classic YOLO: class cx cy w h (all normalized)
+                        if len(parts) == 5:
+                            (
+                                cat_id,
+                                x_center_norm,
+                                y_center_norm,
+                                width_norm,
+                                height_norm,
+                            ) = parts
 
-                        row["ann_area"] = row["ann_bbox_width"] * row["ann_bbox_height"]
+                            row["ann_bbox_width"] = float(width_norm) * img_width
+                            row["ann_bbox_height"] = float(height_norm) * img_height
+                            row["ann_bbox_xmin"] = float(x_center_norm) * img_width - (
+                                (row["ann_bbox_width"] / 2)
+                            )
+                            row["ann_bbox_ymax"] = float(y_center_norm) * img_height + (
+                                (row["ann_bbox_height"] / 2)
+                            )
+                            row["ann_bbox_xmax"] = (
+                                row["ann_bbox_xmin"] + row["ann_bbox_width"]
+                            )
+                            row["ann_bbox_ymin"] = (
+                                row["ann_bbox_ymax"] - row["ann_bbox_height"]
+                            )
 
-                        row["cat_id"] = cat_id
-                        row["cat_name"] = GetCatNameFromId(cat_id, cat_names)
+                            row["ann_area"] = row["ann_bbox_width"] * row["ann_bbox_height"]
 
-                        d[row_id] = dict(row)
-                        row_id += 1
+                            row["cat_id"] = cat_id
+                            row["cat_name"] = GetCatNameFromId(cat_id, cat_names)
+
+                            d[row_id] = dict(row)
+                            row_id += 1
+
+                        # YOLO OBB polygon: class x1 y1 x2 y2 x3 y3 x4 y4 (all normalized)
+                        elif len(parts) == 9:
+                            cat_id = parts[0]
+                            coords_norm = list(map(float, parts[1:]))  # 8 values
+
+                            # Scale normalized polygon coords to absolute pixel coords
+                            poly_abs = []
+                            for idx_c, val in enumerate(coords_norm):
+                                if idx_c % 2 == 0:  # x
+                                    poly_abs.append(val * img_width)
+                                else:  # y
+                                    poly_abs.append(val * img_height)
+
+                            # Compute AABB from polygon
+                            xs = poly_abs[0::2]
+                            ys = poly_abs[1::2]
+                            xmin = min(xs)
+                            xmax = max(xs)
+                            ymin = min(ys)
+                            ymax = max(ys)
+
+                            row["ann_bbox_xmin"] = xmin
+                            row["ann_bbox_xmax"] = xmax
+                            row["ann_bbox_ymin"] = ymin
+                            row["ann_bbox_ymax"] = ymax
+                            row["ann_bbox_width"] = xmax - xmin
+                            row["ann_bbox_height"] = ymax - ymin
+
+                            # Polygon area via shoelace formula
+                            def _poly_area(coords_flat):
+                                x_vals = coords_flat[0::2]
+                                y_vals = coords_flat[1::2]
+                                n = len(x_vals)
+                                acc = 0.0
+                                for i in range(n):
+                                    ni = (i + 1) % n
+                                    acc += x_vals[i] * y_vals[ni] - y_vals[i] * x_vals[ni]
+                                return abs(acc) / 2.0
+
+                            row["ann_area"] = _poly_area(poly_abs)
+
+                            # Store segmentation as a single polygon list inside a list (COCO-style)
+                            row["ann_segmentation"] = [poly_abs]
+
+                            row["cat_id"] = cat_id
+                            row["cat_name"] = GetCatNameFromId(cat_id, cat_names)
+
+                            d[row_id] = dict(row)
+                            row_id += 1
+
+                        else:
+                            raise ValueError(
+                                f"Unsupported YOLO label format in file {filepath}: '{line}'."
+                            )
                         # Copy the image data to use for the next row
                     else:
                         # Create a row without annotations
